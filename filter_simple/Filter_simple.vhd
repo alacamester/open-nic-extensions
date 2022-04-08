@@ -91,19 +91,21 @@ SIGNAL DAV 				: STD_LOGIC;
 TYPE tyFLT_State 		IS (FLT_START, FLT_IP_SRC, FLT_IP_DST, FLT_L4_PORTS);
 SIGNAL FLT_State 		: tyFLT_State;
 SIGNAL FDATA 			: STD_LOGIC_VECTOR(120-1 downto 0) := (others => '0');
-SIGNAL FDATA_Wr 		: STD_LOGIC_VECTOR(8-1 downto 0); -- num filters
-SIGNAL aFDATA_Wr 		: STD_LOGIC_VECTOR(8-1 downto 0); -- num filters
+
+CONSTANT FLT_Num        : INTEGER := 8;
+
+SIGNAL FDATA_Wr 		: STD_LOGIC_VECTOR(FLT_Num-1 downto 0); -- num filters
+SIGNAL aFDATA_Wr 		: STD_LOGIC_VECTOR(FLT_Num-1 downto 0); -- num filters
 -- clock conversion
-SIGNAL FF_Din           : STD_LOGIC_VECTOR(120+8-1 downto 0);
-SIGNAL FF_Dout          : STD_LOGIC_VECTOR(120+8-1 downto 0);
+SIGNAL FF_Din           : STD_LOGIC_VECTOR(120+FLT_Num-1 downto 0);
+SIGNAL FF_Dout          : STD_LOGIC_VECTOR(120+FLT_Num-1 downto 0);
 SIGNAL FF_Wr            : STD_LOGIC := '0';
 SIGNAL FF_Rd            : STD_LOGIC;
 
 -- filter xtension
-CONSTANT FLT_MUL        : INTEGER := 8;
+CONSTANT FLT_MUL        : INTEGER := 16;
 
 SIGNAL FF_Rd_r          : STD_LOGIC;
-SIGNAL CFDATA_Sel       : STD_LOGIC_VECTOR(FLT_MUL*8-1 downto 0);
 SIGNAL Decode_Done      : STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
 SIGNAL IPv4_Av       	: STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
 SIGNAL IPv4_SRC     	: STD_LOGIC_VECTOR(FLT_MUL*32-1 downto 0);
@@ -113,10 +115,13 @@ SIGNAL L4_Av     	    : STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
 SIGNAL L4_SRC   	   	: STD_LOGIC_VECTOR(FLT_MUL*16-1 downto 0);
 SIGNAL L4_DST   	   	: STD_LOGIC_VECTOR(FLT_MUL*16-1 downto 0);
 
-SIGNAL cFDATA_Wr        : STD_LOGIC_VECTOR(FLT_MUL*8-1 downto 0);
+SIGNAL cFDATA_Shr 		: STD_LOGIC_VECTOR(4-1 downto 0);
+SIGNAL cFDATA_Shr_r 	: STD_LOGIC_VECTOR(4-1 downto 0);
+SIGNAL cFDATA_Sel       : STD_LOGIC_VECTOR(FLT_MUL*FLT_Num/2-1 downto 0);
+SIGNAL cFDATA_Wr        : STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0);
 SIGNAL cFDATA           : STD_LOGIC_VECTOR(FLT_MUL*120-1 downto 0);
-SIGNAL Filter_Done 		: STD_LOGIC_VECTOR(FLT_MUL*8-1 downto 0); -- num filters
-SIGNAL Filter_Match 	: STD_LOGIC_VECTOR(FLT_MUL*8-1 downto 0); -- num filters
+SIGNAL Filter_Done 		: STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0); -- num filters
+SIGNAL Filter_Match 	: STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0); -- num filters
 
 
 --
@@ -129,7 +134,7 @@ IF (Clk_pci'event AND Clk_pci = '1') THEN
 DATA 	<= DATA_IN;
 DAV 	<= DAV_IN;
 --
-aFDATA_Wr(8-1 downto 0) 	<= conv_exp2bin(FDATA(3-1 downto 0))(8-1 downto 0); -- FLT Id
+aFDATA_Wr(FLT_Num-1 downto 0) 	<= conv_exp2bin(FDATA(3-1 downto 0))(FLT_Num-1 downto 0); -- FLT Id
 IF (Rst = '1') THEN
 	FLT_State 	<= FLT_START;
 	FF_Wr       <= '0';
@@ -151,7 +156,7 @@ ELSIF (DAV = '1') THEN
 		WHEN FLT_L4_PORTS =>
 			FDATA(88+32-1 downto 88)	<= DATA;
 			FLT_State 					<= FLT_START;
-			FDATA_Wr(8-1 downto 0) 		<= aFDATA_Wr;
+			FDATA_Wr             		<= aFDATA_Wr;
 			FF_Wr                       <= '1';
 		WHEN OTHERS =>
 			NULL;	
@@ -171,7 +176,7 @@ xpm_cdc_array_single_inst : xpm_cdc_array_single
       INIT_SYNC_FF => 0,   -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
       SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       SRC_INPUT_REG => 1,  -- DECIMAL; 0=do not register input, 1=register input
-      WIDTH => 120+8           -- DECIMAL; range: 1-1024
+      WIDTH => 120+FLT_Num           -- DECIMAL; range: 1-1024
    )
    port map (
       dest_out => FF_Dout, -- WIDTH-bit output: src_in synchronized to the destination clock domain. This
@@ -215,34 +220,40 @@ xpm_cdc_array_single_inst : xpm_cdc_array_single
       src_rst => '0'        -- 1-bit input: optional; required when RST_USED = 1
    );
 
+cFDATA_Shr 	<= FF_Dout(6 downto 3);
+
 UcW: PROCESS(clk)
 BEGIN
 IF (clk'event AND clk = '1') THEN
---cFDATA  <= FF_Dout(120-1 downto 0);
-CASE (FF_Dout(5 downto 3)) IS
+cFDATA_Shr_r 	<= CFDATA_Shr;
+CASE (cFDATA_Shr(3-1 downto 0)) IS
     WHEN "000" =>
-        cFDATA_Sel  <= X"00000000000000" & FF_Dout(120+8-1 downto 120);
+        cFDATA_Sel  <= X"00000000000000" & FF_Dout(120+FLT_Num-1 downto 120);
     WHEN "001" =>
-        cFDATA_Sel  <= X"000000000000" & FF_Dout(120+8-1 downto 120) & X"00";    
+        cFDATA_Sel  <= X"000000000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"00";
     WHEN "010" =>
-        cFDATA_Sel  <= X"0000000000" & FF_Dout(120+8-1 downto 120) & X"0000";    
+        cFDATA_Sel  <= X"0000000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"0000";
     WHEN "011" =>
-        cFDATA_Sel  <= X"00000000" & FF_Dout(120+8-1 downto 120) & X"000000";    
+        cFDATA_Sel  <= X"00000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"000000";
     WHEN "100" =>
-        cFDATA_Sel  <= X"000000" & FF_Dout(120+8-1 downto 120) & X"00000000";    
+        cFDATA_Sel  <= X"000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"00000000";
     WHEN "101" =>
-        cFDATA_Sel  <= X"0000" & FF_Dout(120+8-1 downto 120) & X"0000000000";    
+        cFDATA_Sel  <= X"0000" & FF_Dout(120+FLT_Num-1 downto 120) & X"0000000000";
     WHEN "110" =>
-        cFDATA_Sel  <= X"00" & FF_Dout(120+8-1 downto 120) & X"000000000000";    
+        cFDATA_Sel  <= X"00" & FF_Dout(120+FLT_Num-1 downto 120) & X"000000000000";
     WHEN "111" =>
-        cFDATA_Sel  <= FF_Dout(120+8-1 downto 120) & X"00000000000000";    
+        cFDATA_Sel  <= FF_Dout(120+FLT_Num-1 downto 120) & X"00000000000000";    
     WHEN OTHERS =>
         NULL;
 END CASE;    
 --    
 FF_Rd_r     <= FF_Rd;
 IF (FF_Rd_r = '1') THEN
-    cFDATA_Wr <= cFDATA_Sel; --FF_Dout(120+8-1 downto 120);
+	IF (cFDATA_Shr_r(4-1) = '0') THEN
+    	cFDATA_Wr(64-1 downto   0) <= cFDATA_Sel;
+    ELSE
+    	cFDATA_Wr(128-1 downto 64) <= cFDATA_Sel;
+    END IF;
 ELSE
     cFDATA_Wr <= (others => '0');
 END IF;
@@ -250,7 +261,7 @@ END IF;
 END PROCESS;
 
 
-U4x: FOR F IN 0 TO (FLT_MUL-1) GENERATE
+Umulx: FOR F IN 0 TO (FLT_MUL-1) GENERATE
 BEGIN
 
 Udup: PROCESS(clk)
@@ -268,14 +279,14 @@ IF (clk'event AND clk = '1') THEN
 END IF;
 END PROCESS;
 
-UFlt: FOR I IN 0 TO (8-1) GENERATE
+UFlt: FOR I IN 0 TO (FLT_Num-1) GENERATE
 BEGIN
 
 Ug: aFilter_100G
 	PORT MAP(
 	Clk 		     => Clk,
 	FDATA_IN 	     => cFDATA(120*(F+1)-1 downto 120*F),
-	FDATA_Wr   	     => cFDATA_Wr(8*F+I),
+	FDATA_Wr   	     => cFDATA_Wr(FLT_Num*F+I),
 	--
 	Decode_Done 	=> Decode_Done(F), --: IN STD_LOGIC;
 	IPv4_Av 		=> IPv4_Av(F), --: IN STD_LOGIC;
@@ -286,8 +297,8 @@ Ug: aFilter_100G
 	L4_SRC 			=> L4_SRC(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
 	L4_DST 			=> L4_DST(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
 	--
-	Filter_Done 	=> Filter_Done(8*F+I),
-	Filter_Match 	=> Filter_Match(8*F+I)
+	Filter_Done 	=> Filter_Done(FLT_Num*F+I),
+	Filter_Match 	=> Filter_Match(FLT_Num*F+I)
 	);
 END GENERATE;
 

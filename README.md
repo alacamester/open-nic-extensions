@@ -5,7 +5,7 @@ Open NIC shell firmware-extensions
 - Simple decoder and filter ; protocol stack: Eth/(VLAN)/IPv4/[TCP/UDP]
 - Only pass-filtering is implemented
 - Filter for: IPv4 SRC/DST address, IPv4 protocol value, TCP/UDP SRC/DST port value
-- supports 64 filter-rules per-interface for now (can be extended to 256)
+- supports 128 filter-rules per-interface for now (can be extended to 256)
 
 ### TODO : 
 - add support for IPv6 filtering
