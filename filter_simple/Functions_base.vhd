@@ -51,6 +51,11 @@ PACKAGE FunctionsPkg_base IS
 		signal	src		: std_logic_vector
 	) return std_logic_vector;
 
+	function conv_exp2mask(
+		signal	src		: std_logic_vector
+	) return std_logic_vector;
+
+
 	function conv_bin2exp(
 		signal	src		: std_logic_vector
 	) return integer;
@@ -242,6 +247,21 @@ for I in 0 to result'length-1 loop
 end loop;
 return result;
 end function conv_exp2bin;
+--return 2exp value of input as bitmask
+function conv_exp2mask(signal src : std_logic_vector)return std_logic_vector is
+constant aexp : integer := conv_integer(src);
+variable result : std_logic_vector(2**src'length-1 downto 0) := (others => '0');
+begin
+for I in 0 to result'length-1 loop
+	if (I <= aexp) then
+		result(I)	:= '1';
+	else
+		result(I)	:= '0';
+	end if;
+end loop;
+return result;
+end function conv_exp2mask;
+
 --return log2 value of input vector (position nr.)
 function conv_bin2exp(signal src : std_logic_vector)return integer is
 variable aval : integer := 0;

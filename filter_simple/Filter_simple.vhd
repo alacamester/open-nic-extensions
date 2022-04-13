@@ -31,7 +31,7 @@ COMPONENT aFilter_100G
 		PORT (
 		Clk 			: IN STD_LOGIC;
 		--
-		FDATA_IN 		: IN STD_LOGIC_VECTOR(120-1 downto 0);
+		FDATA_IN 		: IN STD_LOGIC_VECTOR(184-1 downto 0);
 		FDATA_Wr 		: IN STD_LOGIC;
 		--
 		Decode_Done 	: IN STD_LOGIC;
@@ -44,7 +44,8 @@ COMPONENT aFilter_100G
 		L4_DST 			: IN STD_LOGIC_VECTOR(16-1 downto 0);
 		--
 		Filter_Done 	: OUT STD_LOGIC;
-		Filter_Match	: OUT STD_LOGIC
+		Filter_Match	: OUT STD_LOGIC;
+		Filter_Drop  	: OUT STD_LOGIC
 		);
 END COMPONENT;
 
@@ -88,22 +89,26 @@ ARCHITECTURE STRUCTURE OF Filter_100G_simple IS
 --
 SIGNAL DATA 			: STD_LOGIC_VECTOR(32-1 downto 0);
 SIGNAL DAV 				: STD_LOGIC;
-TYPE tyFLT_State 		IS (FLT_START, FLT_IP_SRC, FLT_IP_DST, FLT_L4_PORTS);
+TYPE tyFLT_State 		IS (FLT_START, FLT_IP_SRC, FLT_IP_DST, FLT_L4_PORTS, FLT_CTRL);
 SIGNAL FLT_State 		: tyFLT_State;
-SIGNAL FDATA 			: STD_LOGIC_VECTOR(120-1 downto 0) := (others => '0');
+
+CONSTANT FDATA_Size		: INTEGER := 184;
+
+SIGNAL FDATA 			: STD_LOGIC_VECTOR(FDATA_Size-1 downto 0) := (others => '0');
+SIGNAL MASKS            : STD_LOGIC_VECTOR(2*32-1 downto 0);
 
 CONSTANT FLT_Num        : INTEGER := 8;
 
 SIGNAL FDATA_Wr 		: STD_LOGIC_VECTOR(FLT_Num-1 downto 0); -- num filters
 SIGNAL aFDATA_Wr 		: STD_LOGIC_VECTOR(FLT_Num-1 downto 0); -- num filters
 -- clock conversion
-SIGNAL FF_Din           : STD_LOGIC_VECTOR(120+FLT_Num-1 downto 0);
-SIGNAL FF_Dout          : STD_LOGIC_VECTOR(120+FLT_Num-1 downto 0);
+SIGNAL FF_Din           : STD_LOGIC_VECTOR(FDATA_Size+FLT_Num-1 downto 0);
+SIGNAL FF_Dout          : STD_LOGIC_VECTOR(FDATA_Size+FLT_Num-1 downto 0);
 SIGNAL FF_Wr            : STD_LOGIC := '0';
 SIGNAL FF_Rd            : STD_LOGIC;
 
 -- filter xtension
-CONSTANT FLT_MUL        : INTEGER := 16;
+CONSTANT FLT_MUL        : INTEGER := 32;
 
 SIGNAL FF_Rd_r          : STD_LOGIC;
 SIGNAL Decode_Done      : STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
@@ -115,14 +120,18 @@ SIGNAL L4_Av     	    : STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
 SIGNAL L4_SRC   	   	: STD_LOGIC_VECTOR(FLT_MUL*16-1 downto 0);
 SIGNAL L4_DST   	   	: STD_LOGIC_VECTOR(FLT_MUL*16-1 downto 0);
 
-SIGNAL cFDATA_Shr 		: STD_LOGIC_VECTOR(4-1 downto 0);
-SIGNAL cFDATA_Shr_r 	: STD_LOGIC_VECTOR(4-1 downto 0);
-SIGNAL cFDATA_Sel       : STD_LOGIC_VECTOR(FLT_MUL*FLT_Num/2-1 downto 0);
+SIGNAL cFDATA_Shr 		: STD_LOGIC_VECTOR(5-1 downto 0);
+SIGNAL cFDATA_Shr_r 	: STD_LOGIC_VECTOR(5-1 downto 0);
+SIGNAL cFDATA_Sel       : STD_LOGIC_VECTOR(FLT_MUL*FLT_Num/4-1 downto 0);
 SIGNAL cFDATA_Wr        : STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0);
-SIGNAL cFDATA           : STD_LOGIC_VECTOR(FLT_MUL*120-1 downto 0);
+SIGNAL cFDATA           : STD_LOGIC_VECTOR(FLT_MUL*FDATA_Size-1 downto 0);
 SIGNAL Filter_Done 		: STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0); -- num filters
 SIGNAL Filter_Match 	: STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0); -- num filters
+SIGNAL Filter_Drop 		: STD_LOGIC_VECTOR(FLT_MUL*FLT_Num-1 downto 0); -- num filters
 
+SIGNAL Filter_Done_r 	: STD_LOGIC;
+SIGNAL Filter_Match_r 	: STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
+SIGNAL Filter_Drop_r 	: STD_LOGIC_VECTOR(FLT_MUL-1 downto 0);
 
 --
 BEGIN
@@ -141,20 +150,25 @@ IF (Rst = '1') THEN
 ELSIF (DAV = '1') THEN
 	CASE FLT_State IS
 		WHEN FLT_START => -- PROTO & Id
-			FDATA(8-1 downto 0) 		<= DATA(8-1 downto 0); -- FLT Id
-			FDATA(16-1 downto 8) 		<= DATA(16-1 downto 8); -- FLT ctrl
-			FDATA(24-1 downto 16)		<= DATA(24-1 downto 16); -- IP Proto
---			FDATA_Wr(8-1 downto 0) 		<= (others => '0');
+			FDATA(8-1 downto 0) 		<= DATA(8-1 downto 0); -- FLT Id (can be xtended to 16 bits)
+			MASKS(32-1 downto 0) 		<= conv_exp2mask(DATA(16+5-1 downto 16))(32-1 downto 0);
+			MASKS(64-1 downto 32)		<= conv_exp2mask(DATA(24+5-1 downto 24))(32-1 downto 0);
 			FLT_State 					<= FLT_IP_SRC;
 			FF_Wr                       <= '0';
 		WHEN FLT_IP_SRC =>
 			FDATA(24+32-1 downto 24)	<= DATA;
+			FDATA(120+32-1 downto 120) 	<= MASKS(32-1 downto 0);
 			FLT_State 					<= FLT_IP_DST;
 		WHEN FLT_IP_DST =>
 			FDATA(56+32-1 downto 56)	<= DATA;
+			FDATA(152+32-1 downto 152) 	<= MASKS(64-1 downto 32);
 			FLT_State 					<= FLT_L4_PORTS;
 		WHEN FLT_L4_PORTS =>
 			FDATA(88+32-1 downto 88)	<= DATA;
+			FLT_State 					<= FLT_CTRL;
+		WHEN FLT_CTRL =>
+			FDATA(16-1 downto 8) 		<= DATA(8-1 downto 0); -- FLT ctrl
+			FDATA(24-1 downto 16)		<= DATA(16-1 downto 8); -- IP Proto
 			FLT_State 					<= FLT_START;
 			FDATA_Wr             		<= aFDATA_Wr;
 			FF_Wr                       <= '1';
@@ -176,7 +190,7 @@ xpm_cdc_array_single_inst : xpm_cdc_array_single
       INIT_SYNC_FF => 0,   -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
       SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       SRC_INPUT_REG => 1,  -- DECIMAL; 0=do not register input, 1=register input
-      WIDTH => 120+FLT_Num           -- DECIMAL; range: 1-1024
+      WIDTH => FDATA_Size+FLT_Num           -- DECIMAL; range: 1-1024
    )
    port map (
       dest_out => FF_Dout, -- WIDTH-bit output: src_in synchronized to the destination clock domain. This
@@ -220,7 +234,7 @@ xpm_cdc_array_single_inst : xpm_cdc_array_single
       src_rst => '0'        -- 1-bit input: optional; required when RST_USED = 1
    );
 
-cFDATA_Shr 	<= FF_Dout(6 downto 3);
+cFDATA_Shr 	<= FF_Dout(8-1 downto 3);
 
 UcW: PROCESS(clk)
 BEGIN
@@ -228,32 +242,39 @@ IF (clk'event AND clk = '1') THEN
 cFDATA_Shr_r 	<= CFDATA_Shr;
 CASE (cFDATA_Shr(3-1 downto 0)) IS
     WHEN "000" =>
-        cFDATA_Sel  <= X"00000000000000" & FF_Dout(120+FLT_Num-1 downto 120);
+        cFDATA_Sel  <= X"00000000000000" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size);
     WHEN "001" =>
-        cFDATA_Sel  <= X"000000000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"00";
+        cFDATA_Sel  <= X"000000000000" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"00";
     WHEN "010" =>
-        cFDATA_Sel  <= X"0000000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"0000";
+        cFDATA_Sel  <= X"0000000000" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"0000";
     WHEN "011" =>
-        cFDATA_Sel  <= X"00000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"000000";
+        cFDATA_Sel  <= X"00000000" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"000000";
     WHEN "100" =>
-        cFDATA_Sel  <= X"000000" & FF_Dout(120+FLT_Num-1 downto 120) & X"00000000";
+        cFDATA_Sel  <= X"000000" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"00000000";
     WHEN "101" =>
-        cFDATA_Sel  <= X"0000" & FF_Dout(120+FLT_Num-1 downto 120) & X"0000000000";
+        cFDATA_Sel  <= X"0000" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"0000000000";
     WHEN "110" =>
-        cFDATA_Sel  <= X"00" & FF_Dout(120+FLT_Num-1 downto 120) & X"000000000000";
+        cFDATA_Sel  <= X"00" & FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"000000000000";
     WHEN "111" =>
-        cFDATA_Sel  <= FF_Dout(120+FLT_Num-1 downto 120) & X"00000000000000";    
+        cFDATA_Sel  <= FF_Dout(FDATA_Size+FLT_Num-1 downto FDATA_Size) & X"00000000000000";    
     WHEN OTHERS =>
         NULL;
 END CASE;    
 --    
 FF_Rd_r     <= FF_Rd;
 IF (FF_Rd_r = '1') THEN
-	IF (cFDATA_Shr_r(4-1) = '0') THEN
+	CASE (cFDATA_Shr_r(5-1 downto 3)) IS
+	   WHEN "00" =>
     	cFDATA_Wr(64-1 downto   0) <= cFDATA_Sel;
-    ELSE
+       WHEN "01" =>
     	cFDATA_Wr(128-1 downto 64) <= cFDATA_Sel;
-    END IF;
+       WHEN "10" =>
+        cFDATA_Wr(128+64-1 downto 128) <= cFDATA_Sel;
+       WHEN "11" =>
+        cFDATA_Wr(256-1 downto 128+64) <= cFDATA_Sel;
+       WHEN OTHERS =>
+        NULL;
+    END CASE;
 ELSE
     cFDATA_Wr <= (others => '0');
 END IF;
@@ -267,7 +288,7 @@ BEGIN
 Udup: PROCESS(clk)
 BEGIN
 IF (clk'event AND clk = '1') THEN
-    CFDATA(120*(F+1)-1 downto 120*F)    <= FF_Dout(120-1 downto 0);
+    CFDATA(FDATA_Size*(F+1)-1 downto FDATA_Size*F)    <= FF_Dout(FDATA_Size-1 downto 0);
     Decode_Done(F)                      <= Decode_Done_IN;
     IPv4_Av(F)                          <= IPv4_Av_IN;
     IPv4_SRC(32*(F+1)-1 downto 32*F)    <= IPv4_SRC_IN;
@@ -285,7 +306,7 @@ BEGIN
 Ug: aFilter_100G
 	PORT MAP(
 	Clk 		     => Clk,
-	FDATA_IN 	     => cFDATA(120*(F+1)-1 downto 120*F),
+	FDATA_IN 	     => cFDATA(FDATA_Size*(F+1)-1 downto FDATA_Size*F),
 	FDATA_Wr   	     => cFDATA_Wr(FLT_Num*F+I),
 	--
 	Decode_Done 	=> Decode_Done(F), --: IN STD_LOGIC;
@@ -298,21 +319,44 @@ Ug: aFilter_100G
 	L4_DST 			=> L4_DST(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
 	--
 	Filter_Done 	=> Filter_Done(FLT_Num*F+I),
-	Filter_Match 	=> Filter_Match(FLT_Num*F+I)
+	Filter_Match 	=> Filter_Match(FLT_Num*F+I),
+	Filter_Drop 	=> Filter_Drop(FLT_Num*F+I)
 	);
 END GENERATE;
 
+UOutF: PROCESS(clk)
+BEGIN
+IF (clk'event AND clk = '1') THEN
+IF (Filter_Match((F+1)*FLT_Num-1 downto F*FLT_Num) /= 0) THEN
+	Filter_Match_r(F) 	<= '1';
+ELSE
+	Filter_Match_r(F) 	<= '0';
+END IF;
+IF (Filter_Drop((F+1)*FLT_Num-1 downto F*FLT_Num) /= 0) THEN
+	Filter_Drop_r(F) 	<= '1';
+ELSE
+	Filter_Drop_r(F) 	<= '0';
+END IF;
+
+END IF;
+END PROCESS;
+
 END GENERATE;
 
--- only pass-filter for now
+-- drop-filter has priority over pass
 UOut: PROCESS(clk)
 BEGIN
 IF (clk'event AND clk = '1') THEN
-Filter_Done_OUT      <= Filter_Done(0);
-IF (Filter_Done(0) = '1' AND Filter_Match /= 0) THEN
-	Filter_Match_OUT 	<= '1';
-ELSE
-	Filter_Match_OUT 	<= '0';
+Filter_Done_r      <= Filter_Done(0);
+Filter_Done_OUT    <= Filter_Done_r;
+IF (Filter_Done_r = '1') THEN
+	IF (Filter_Drop_r /= 0) THEN -- filter match for drop
+		Filter_Match_OUT 	<= '0';
+	ELSIF (Filter_Match_r /= 0) THEN -- filter match for pass
+		Filter_Match_OUT 	<= '1';
+	ELSE -- no match, just drop it
+		Filter_Match_OUT 	<= '0';
+	END IF;
 END IF;
 END IF;
 END PROCESS;
@@ -329,7 +373,7 @@ ENTITY aFilter_100G IS
 	PORT (
 		Clk 			: IN STD_LOGIC;
 		--	
-		FDATA_IN 		: IN STD_LOGIC_VECTOR(120-1 downto 0);
+		FDATA_IN 		: IN STD_LOGIC_VECTOR(184-1 downto 0);
 		FDATA_Wr 		: IN STD_LOGIC;
 		--
 		Decode_Done 	: IN STD_LOGIC;
@@ -342,14 +386,16 @@ ENTITY aFilter_100G IS
 		L4_DST 			: IN STD_LOGIC_VECTOR(16-1 downto 0);
 		--
 		Filter_Done 	: OUT STD_LOGIC;
-		Filter_Match	: OUT STD_LOGIC
+		Filter_Match	: OUT STD_LOGIC;
+		Filter_Drop		: OUT STD_LOGIC
 		);
 END aFilter_100G;
 
 ARCHITECTURE STRUCTURE OF aFilter_100G IS 
 --
-SIGNAL FDATA 		: STD_LOGIC_VECTOR(120-1 downto 0);
+SIGNAL FDATA 		: STD_LOGIC_VECTOR(184-1 downto 0);
 SIGNAL FCTRL 		: STD_LOGIC_VECTOR(8-1 downto 0);
+SIGNAL FDROP        : STD_LOGIC := '0';
 SIGNAL FLT_Match 	: STD_LOGIC_VECTOR(5-1 downto 0);
 SIGNAL Decode_Done_r : STD_LOGIC;
 --
@@ -361,15 +407,16 @@ IF (clk'event AND clk = '1') THEN
 --
 IF (FDATA_Wr = '1') THEN
 	FCTRL 	<= NOT FDATA_IN(16-1 downto 8);
+    FDROP   <= FDATA_IN(16-1);
 	FDATA 	<= FDATA_IN;
 END IF;
 IF (IPv4_Av = '1') THEN
-	IF (FDATA(24+32-1 downto 24) = IPv4_SRC) THEN
+	IF (FDATA(24+32-1 downto 24) = (IPv4_SRC AND FDATA(120+32-1 downto 120))) THEN
 		FLT_Match(0) 	<= '1';
 	ELSE
 		FLT_Match(0)	<= '0';
 	END IF;
-	IF (FDATA(56+32-1 downto 56) = IPv4_DST) THEN
+	IF (FDATA(56+32-1 downto 56) = (IPv4_DST AND FDATA(120+64-1 downto 120+32))) THEN
 		FLT_Match(1) 	<= '1';
 	ELSE
 		FLT_Match(1)	<= '0';
@@ -402,8 +449,10 @@ Decode_Done_r 	<= Decode_Done;
 Filter_Done 	<= Decode_Done_r;
 IF ((FLT_Match OR FCTRL(4 downto 0)) = "11111") THEN
 	Filter_Match	<= '1';
+    Filter_Drop     <= FDROP;
 ELSE
 	Filter_Match 	<= '0';
+    Filter_Drop     <= '0';	
 END IF;
 --
 END IF;
