@@ -4,7 +4,7 @@ use work.tuw.all;
 --      ==========
 PACKAGE pkg_FLT100G IS
 --      ==========
-CONSTANT FDATA_Size : INTEGER := 312;
+CONSTANT FDATA_Size : INTEGER := 336;
 
 COMPONENT Filter_100G_simple
         PORT (
@@ -36,14 +36,14 @@ COMPONENT aFilter_100G
 		FDATA_IN 		: IN STD_LOGIC_VECTOR(FDATA_Size-1 downto 0);
 		FDATA_Wr 		: IN STD_LOGIC;
 		--
-		Decode_Done 	: IN STD_LOGIC;
-		IP_Av   		: IN  STD_LOGIC;
-		IP_SRC    		: IN  STD_LOGIC_VECTOR(16*8-1 downto 0);
-		IP_DST    		: IN  STD_LOGIC_VECTOR(16*8-1 downto 0);
-		IP_PROTO      	: IN  STD_LOGIC_VECTOR(8-1 downto 0);
-		L4_Av 			: IN STD_LOGIC;
-		L4_SRC 			: IN STD_LOGIC_VECTOR(16-1 downto 0);
-		L4_DST 			: IN STD_LOGIC_VECTOR(16-1 downto 0);
+		Decode_Done_IN 	: IN STD_LOGIC;
+		IP_Av_IN		: IN STD_LOGIC;
+		IP_SRC_IN		: IN STD_LOGIC_VECTOR(16*8-1 downto 0);
+		IP_DST_IN		: IN STD_LOGIC_VECTOR(16*8-1 downto 0);
+		IP_PROTO_IN   	: IN STD_LOGIC_VECTOR(8-1 downto 0);
+		L4_Av_IN		: IN STD_LOGIC;
+		L4_SRC_IN		: IN STD_LOGIC_VECTOR(16-1 downto 0);
+		L4_DST_IN		: IN STD_LOGIC_VECTOR(16-1 downto 0);
 		--
 		Filter_Done 	: OUT STD_LOGIC;
 		Filter_Match	: OUT STD_LOGIC;
@@ -151,9 +151,8 @@ IF (Rst = '1') THEN
 ELSIF (DAV = '1') THEN
 	CASE FLT_State IS
 		WHEN FLT_START => -- PROTO & Id
-			FDATA(8-1 downto 0) 		<= DATA(8-1 downto 0); -- FLT Id (can be xtended to 16 bits)
---			MASKS(32-1 downto 0) 		<= conv_exp2mask(DATA(16+5-1 downto 16))(32-1 downto 0);
---			MASKS(64-1 downto 32)		<= conv_exp2mask(DATA(24+5-1 downto 24))(32-1 downto 0);
+			FDATA(16-1 downto 0) 		<= DATA(16-1 downto 0); -- FLT Id (can be xtended to 16 bits)
+			FDATA(320+16-1 downto 320) 	<= DATA(32-1 downto 16);
 			IF (DATA(32-1) = '1') THEN -- IPv6
                 FLT_State 					<= FLT_IP_SRC_1; 
             ELSE
@@ -162,43 +161,43 @@ ELSIF (DAV = '1') THEN
 			FF_Wr                       <= '0';
 		WHEN FLT_IP_SRC =>
 		    FLT_State                   <= FLT_IP_DST;
-		    FDATA(24+128-32-1 downto 24)<= IP46_PREFIX;
-		    FDATA(24+128-1 downto 24+128-32)    <= DATA; -- IPv4 address
+		    FDATA(32+128-32-1 downto 32)<= IP46_PREFIX;
+		    FDATA(32+128-1 downto 32+128-32)    <= DATA; -- IPv4 address
 		WHEN FLT_IP_DST =>
 		    FLT_State                   <= FLT_L4_PORTS;
-		    FDATA(152+128-32-1 downto 152)<= IP46_PREFIX;
-		    FDATA(152+128-1 downto 152+128-32)    <= DATA; -- IPv4 address
+		    FDATA(160+128-32-1 downto 160)<= IP46_PREFIX;
+		    FDATA(160+128-1 downto 160+128-32)    <= DATA; -- IPv4 address
 		WHEN FLT_IP_SRC_1 =>
-			FDATA(24+32-1 downto 24)	<= DATA;
+			FDATA(32+32-1 downto 32)	<= DATA;
 --			FDATA(120+32-1 downto 120) 	<= MASKS(32-1 downto 0);
 			FLT_State 					<= FLT_IP_SRC_2;
 		WHEN FLT_IP_SRC_2 =>
-			FDATA(56+32-1 downto 56)	<= DATA;
+			FDATA(64+32-1 downto 64)	<= DATA;
 			FLT_State 					<= FLT_IP_SRC_3;
 		WHEN FLT_IP_SRC_3 =>
-			FDATA(88+32-1 downto 88)	<= DATA;
+			FDATA(96+32-1 downto 96)	<= DATA;
 			FLT_State 					<= FLT_IP_SRC_4;
 		WHEN FLT_IP_SRC_4 =>
-			FDATA(120+32-1 downto 120)	<= DATA;
+			FDATA(128+32-1 downto 128)	<= DATA;
 			FLT_State 					<= FLT_IP_DST_1;
 		WHEN FLT_IP_DST_1 =>
-			FDATA(152+32-1 downto 152)	<= DATA;
+			FDATA(160+32-1 downto 160)	<= DATA;
 			FLT_State 					<= FLT_IP_DST_2;
 		WHEN FLT_IP_DST_2 =>
-			FDATA(184+32-1 downto 184)	<= DATA;
+			FDATA(192+32-1 downto 192)	<= DATA;
 			FLT_State 					<= FLT_IP_DST_3;
 		WHEN FLT_IP_DST_3 =>
-			FDATA(216+32-1 downto 216)	<= DATA;
+			FDATA(224+32-1 downto 224)	<= DATA;
 			FLT_State 					<= FLT_IP_DST_4;
 		WHEN FLT_IP_DST_4 =>
-			FDATA(248+32-1 downto 248)	<= DATA;
+			FDATA(256+32-1 downto 256)	<= DATA;
 			FLT_State 					<= FLT_L4_PORTS;
 		WHEN FLT_L4_PORTS =>
-			FDATA(280+32-1 downto 280)	<= DATA;
+			FDATA(288+32-1 downto 288)	<= DATA;
 			FLT_State 					<= FLT_CTRL;
 		WHEN FLT_CTRL =>
-			FDATA(16-1 downto 8) 		<= DATA(8-1 downto 0); -- FLT ctrl
-			FDATA(24-1 downto 16)		<= DATA(16-1 downto 8); -- IP Proto
+			FDATA(24-1 downto 16) 		<= DATA(8-1 downto 0); -- FLT ctrl
+			FDATA(32-1 downto 24)		<= DATA(16-1 downto 8); -- IP Proto
 			FLT_State 					<= FLT_START;
 			FDATA_Wr             		<= aFDATA_Wr;
 			FF_Wr                       <= '1';
@@ -347,14 +346,14 @@ Ug: aFilter_100G
 	FDATA_IN 	     => cFDATA(FDATA_Size*(F+1)-1 downto FDATA_Size*F),
 	FDATA_Wr   	     => cFDATA_Wr(FLT_Num*F+I),
 	--
-	Decode_Done 	=> Decode_Done(F), --: IN STD_LOGIC;
-	IP_Av 			=> IP_Av(F), --: IN STD_LOGIC;
-	IP_SRC 			=> IP_SRC(128*(F+1)-1 downto 128*F), --: IN STD_LOGIC_VECTOR(32-1 downto 0);
-	IP_DST 			=> IP_DST(128*(F+1)-1 downto 128*F), --: IN STD_LOGIC_VECTOR(32-1 downto 0);
-	IP_PROTO 		=> IP_PROTO(8*(F+1)-1 downto 8*F), --: IN STD_LOGIC_VECTOR(8-1 downto 0);
-	L4_Av 			=> L4_Av(F), --: IN STD_LOGIC;
-	L4_SRC 			=> L4_SRC(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
-	L4_DST 			=> L4_DST(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
+	Decode_Done_IN 	=> Decode_Done(F), --: IN STD_LOGIC;
+	IP_Av_IN		=> IP_Av(F), --: IN STD_LOGIC;
+	IP_SRC_IN		=> IP_SRC(128*(F+1)-1 downto 128*F), --: IN STD_LOGIC_VECTOR(32-1 downto 0);
+	IP_DST_IN		=> IP_DST(128*(F+1)-1 downto 128*F), --: IN STD_LOGIC_VECTOR(32-1 downto 0);
+	IP_PROTO_IN	    => IP_PROTO(8*(F+1)-1 downto 8*F), --: IN STD_LOGIC_VECTOR(8-1 downto 0);
+	L4_Av_IN 		=> L4_Av(F), --: IN STD_LOGIC;
+	L4_SRC_IN 		=> L4_SRC(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
+	L4_DST_IN 		=> L4_DST(16*(F+1)-1 downto 16*F), --: IN STD_LOGIC_VECTOR(16-1 downto 0);
 	--
 	Filter_Done 	=> Filter_Done(FLT_Num*F+I),
 	Filter_Match 	=> Filter_Match(FLT_Num*F+I),
@@ -390,6 +389,7 @@ use IEEE.std_logic_1164.all;
 USE IEEE.std_logic_UNSIGNED.ALL;
 USE work.pkg_FLT100G.FDATA_Size;
 USE work.tuw.all;
+USE work.FunctionsPkg_base.all;
 --
 
 ENTITY aFilter_100G IS
@@ -399,14 +399,14 @@ ENTITY aFilter_100G IS
 		FDATA_IN 		: IN STD_LOGIC_VECTOR(FDATA_Size-1 downto 0);
 		FDATA_Wr 		: IN STD_LOGIC;
 		--
-		Decode_Done 	: IN STD_LOGIC;
-		IP_Av 			: IN STD_LOGIC;
-		IP_SRC 			: IN STD_LOGIC_VECTOR(16*8-1 downto 0);
-		IP_DST 			: IN STD_LOGIC_VECTOR(16*8-1 downto 0);
-		IP_PROTO 		: IN STD_LOGIC_VECTOR(8-1 downto 0);
-		L4_Av 			: IN STD_LOGIC;
-		L4_SRC 			: IN STD_LOGIC_VECTOR(16-1 downto 0);
-		L4_DST 			: IN STD_LOGIC_VECTOR(16-1 downto 0);
+		Decode_Done_IN 	: IN STD_LOGIC;
+		IP_Av_IN		: IN STD_LOGIC;
+		IP_SRC_IN		: IN STD_LOGIC_VECTOR(16*8-1 downto 0);
+		IP_DST_IN		: IN STD_LOGIC_VECTOR(16*8-1 downto 0);
+		IP_PROTO_IN   	: IN STD_LOGIC_VECTOR(8-1 downto 0);
+		L4_Av_IN		: IN STD_LOGIC;
+		L4_SRC_IN		: IN STD_LOGIC_VECTOR(16-1 downto 0);
+		L4_DST_IN		: IN STD_LOGIC_VECTOR(16-1 downto 0);
 		--
 		Filter_Done 	: OUT STD_LOGIC;
 		Filter_Match	: OUT STD_LOGIC;
@@ -416,35 +416,70 @@ END aFilter_100G;
 
 ARCHITECTURE STRUCTURE OF aFilter_100G IS 
 --
+SIGNAL IP_Av        : STD_LOGIC;
+SIGNAL IP_SRC       : STD_LOGIC_VECTOR(16*8-1 downto 0);
+SIGNAL IP_DST       : STD_LOGIC_VECTOR(16*8-1 downto 0);
+SIGNAL IP_PROTO     : STD_LOGIC_VECTOR(8-1 downto 0);
+SIGNAL L4_Av        : STD_LOGIC;
+SIGNAL L4_SRC       : STD_LOGIC_VECTOR(16-1 downto 0);
+SIGNAL L4_DST       : STD_LOGIC_VECTOR(16-1 downto 0);
+
 SIGNAL FDATA_SIP_CTRL : STD_LOGIC_VECTOR(4-1 downto 0);
 SIGNAL FDATA_DIP_CTRL : STD_LOGIC_VECTOR(4-1 downto 0);
 
+SIGNAL FDATA_Wr_d1  : STD_LOGIC;
+SIGNAL FDATA_d1		: STD_LOGIC_VECTOR(FDATA_Size-1 downto 0);
+SIGNAL FDATA_d2		: STD_LOGIC_VECTOR(FDATA_Size-1 downto 0);
 SIGNAL FDATA 		: STD_LOGIC_VECTOR(FDATA_Size-1 downto 0);
 SIGNAL FCTRL 		: STD_LOGIC_VECTOR(11-1 downto 0);
+SIGNAL FCTRL_d2		: STD_LOGIC_VECTOR(11-1 downto 0);
+SIGNAL FDROP_d2     : STD_LOGIC := '0';
 SIGNAL FDROP        : STD_LOGIC := '0';
 SIGNAL FLT_Match 	: STD_LOGIC_VECTOR(11-1 downto 0);
-SIGNAL Decode_Done_r : STD_LOGIC;
+SIGNAL Decode_Done  : STD_LOGIC;
+SIGNAL Decode_Done_r2 : STD_LOGIC;
+
+SIGNAL FMASK_SRC    : STD_LOGIC_VECTOR(128-1 downto 0);
+SIGNAL FMASK_DST    : STD_LOGIC_VECTOR(128-1 downto 0);
 
 --
 BEGIN
 
-FDATA_SIP_CTRL  <= FDATA_IN(8) & FDATA_IN(8) &FDATA_IN(8) & FDATA_IN(8);
-FDATA_DIP_CTRL  <= FDATA_IN(9) & FDATA_IN(9) &FDATA_IN(9) & FDATA_IN(9);
+FDATA_SIP_CTRL  <= FDATA_d1(16) & FDATA_d1(16) &FDATA_d1(16) & FDATA_d1(16);
+FDATA_DIP_CTRL  <= FDATA_d1(17) & FDATA_d1(17) &FDATA_d1(17) & FDATA_d1(17);
 
 UFlt: PROCESS(clk)
 BEGIN
 IF (clk'event AND clk = '1') THEN
 --
-IF (FDATA_Wr = '1') THEN
-	FCTRL(4-1 downto 0) 	<= NOT FDATA_SIP_CTRL;
-	FCTRL(8-1 downto 4) 	<= NOT FDATA_DIP_CTRL;
-	FCTRL(11-1 downto 8)    <= NOT FDATA_IN(13-1 downto 10);
-    FDROP   <= FDATA_IN(16-1);
-	FDATA 	<= FDATA_IN;
+FDATA_d1        <= FDATA_IN;
+FDATA_Wr_d1     <= FDATA_Wr;
+IF (FDATA_Wr_d1 = '1') THEN
+	FCTRL_d2(4-1 downto 0) 	<= NOT FDATA_SIP_CTRL;
+	FCTRL_d2(8-1 downto 4) 	<= NOT FDATA_DIP_CTRL;
+	FCTRL_d2(11-1 downto 8) <= NOT FDATA_d1(21-1 downto 18);
+    FDROP_d2    <= FDATA_d1(16-1);
+	FDATA_d2 	<= FDATA_d1;
 END IF;
+--
+FMASK_SRC <= conv_exp2mask(FDATA_d2(FDATA_Size-8-2 downto FDATA_Size-16))(128-1 downto 0);
+FMASK_DST <= conv_exp2mask(FDATA_d2(FDATA_Size-2 downto FDATA_Size-8))(128-1 downto 0);
+FDATA   <= FDATA_d2;
+FDROP   <= FDROP_d2;
+FCTRL   <= FCTRL_d2;
+--
+Decode_Done 	<= Decode_Done_IN;
+IP_Av     <= IP_Av_IN;
+IP_SRC    <= IP_SRC_IN;
+IP_DST    <= IP_DST_IN;
+IP_PROTO  <= IP_PROTO_IN;
+L4_Av     <= L4_Av_IN;
+L4_SRC    <= L4_SRC_IN;
+L4_DST    <= L4_DST_IN;
+--
 IF (IP_Av = '1') THEN
     FOR S IN 0 TO (4-1) LOOP
-	IF (FDATA(24+32*(S+1)-1 downto 24+(32*S)) = IP_SRC(32*(S+1)-1 downto 32*S)) THEN
+	IF (FDATA(32+32*(S+1)-1 downto 32+(32*S)) = (IP_SRC(32*(S+1)-1 downto 32*S) AND FMASK_SRC(32*(S+1)-1 downto 32*S))) THEN
 		FLT_Match(S) 	<= '1';
 	ELSE
 		FLT_Match(S)	<= '0';
@@ -452,14 +487,14 @@ IF (IP_Av = '1') THEN
 	END LOOP;
 	
 	FOR D IN 0 TO (4-1) LOOP
-	IF (FDATA(152+32*(D+1)-1 downto 152+(32*D)) = IP_DST(32*(D+1)-1 downto 32*D)) THEN
+	IF (FDATA(160+32*(D+1)-1 downto 160+(32*D)) = (IP_DST(32*(D+1)-1 downto 32*D) AND FMASK_DST(32*(D+1)-1 downto 32*D))) THEN
 		FLT_Match(4+D) 	<= '1';
 	ELSE
 		FLT_Match(4+D)	<= '0';
 	END IF;
 	END LOOP;
 	
-	IF (FDATA(24-1 downto 16) = IP_PROTO) THEN
+	IF (FDATA(32-1 downto 24) = IP_PROTO) THEN
 		FLT_Match(8)	<= '1';
 	ELSE
 		FLT_Match(8) 	<= '0';
@@ -469,12 +504,12 @@ ELSE
 END IF;
 --
 IF (L4_Av = '1') THEN
-	IF (FDATA(280+16-1 downto 280) = L4_SRC) THEN
+	IF (FDATA(288+16-1 downto 288) = L4_SRC) THEN
 		FLT_Match(9)	<= '1';
 	ELSE
 		FLT_Match(9)	<= '0';
 	END IF;
-	IF (FDATA(296+16-1 downto 296) = L4_DST) THEN
+	IF (FDATA(304+16-1 downto 304) = L4_DST) THEN
 		FLT_Match(10)	<= '1';
 	ELSE
 		FLT_Match(10)	<= '0';
@@ -483,8 +518,8 @@ ELSE
 	FLT_Match(10 downto 9) 	<= "00";
 END IF;
 --
-Decode_Done_r 	<= Decode_Done;
-Filter_Done 	<= Decode_Done_r;
+Decode_Done_r2 	<= Decode_Done;
+Filter_Done 	<= Decode_Done_r2;
 IF ((FLT_Match OR FCTRL) = "11111111111") THEN
 	Filter_Match	<= '1';
     Filter_Drop     <= FDROP;
